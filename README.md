@@ -4,8 +4,8 @@ ClinicQueue is an AI-powered smart patient queue management system designed for 
 
 ## Tech Stack
 
-- **Frontend**: React with Vite
-- **Backend**: Express.js
+- **Frontend**: React with Vite , Tailwind CSS
+- **Backend**: Express.js Node.js
 - **Database**: MongoDB
 - **Cache**: Redis
 - **Real-time Communication**: Socket.io
