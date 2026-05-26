@@ -13,6 +13,10 @@ dotenv.config();
 const connectDB = require('./config/db');
 connectDB();
 
+// Connect to Redis
+const { connectRedis } = require('./config/redis');
+connectRedis();
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
