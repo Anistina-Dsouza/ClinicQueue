@@ -1,0 +1,1 @@
+{"name":"Clinical Triage and Queue System","description":"An interactive clinical queuing, smart AI triage screening patient portal, waiting room monitor, and real-time command center analytics dashboard.","requestFramePermissions":["microphone"],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
