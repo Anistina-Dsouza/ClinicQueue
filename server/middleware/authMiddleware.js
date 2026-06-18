@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
 
 /**
- * Route protection middleware to authenticate doctor requests via JWT
+ * Route protection middleware to authenticate patient, doctor, or admin requests via JWT
  */
 const protect = async (req, res, next) => {
   let token;
@@ -16,21 +17,37 @@ const protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecret_token_key_here');
 
-      // Fetch doctor from database and attach to request object (excluding password)
-      req.doctor = await Doctor.findById(decoded.id).select('-password');
-      
-      if (!req.doctor) {
-        return res.status(401).json({
-          success: false,
-          message: 'Not authorized, doctor profile not found'
-        });
-      }
+      if (decoded.role === 'patient') {
+        // Fetch patient from database and attach to request
+        req.patient = await Patient.findById(decoded.id);
+        if (!req.patient) {
+          return res.status(401).json({
+            success: false,
+            message: 'Not authorized, patient profile not found'
+          });
+        }
+        req.user = req.patient;
+        req.role = 'patient';
+      } else {
+        // Fetch doctor from database and attach to request object (excluding password)
+        req.doctor = await Doctor.findById(decoded.id).select('-password');
+        
+        if (!req.doctor) {
+          return res.status(401).json({
+            success: false,
+            message: 'Not authorized, profile not found'
+          });
+        }
 
-      if (!req.doctor.isActive) {
-        return res.status(401).json({
-          success: false,
-          message: 'Not authorized, this doctor profile is deactivated'
-        });
+        if (!req.doctor.isActive) {
+          return res.status(401).json({
+            success: false,
+            message: 'Not authorized, this profile is deactivated'
+          });
+        }
+
+        req.user = req.doctor;
+        req.role = decoded.role || req.doctor.role || 'doctor';
       }
 
       next();
@@ -54,3 +71,4 @@ const protect = async (req, res, next) => {
 module.exports = {
   protect
 };
+

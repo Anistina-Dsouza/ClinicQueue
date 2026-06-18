@@ -29,6 +29,11 @@ const doctorSchema = new mongoose.Schema({
     required: [true, 'Please add a medical specialization'],
     trim: true
   },
+  role: {
+    type: String,
+    enum: ['doctor', 'admin'],
+    default: 'doctor'
+  },
   isActive: {
     type: Boolean,
     default: true
