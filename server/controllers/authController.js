@@ -1,23 +1,25 @@
 const jwt = require('jsonwebtoken');
 const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
+const QueueEntry = require('../models/QueueEntry');
 
 /**
- * Generate a JWT token for standard Doctor session auth
+ * Generate a JWT token for standard session auth
  */
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'supersecret_token_key_here', {
+const generateToken = (id, role) => {
+  return jwt.sign({ id, role }, process.env.JWT_SECRET || 'supersecret_token_key_here', {
     expiresIn: '30d'
   });
 };
 
 /**
- * @desc    Register a new doctor profile
+ * @desc    Register a new doctor or admin profile
  * @route   POST /api/auth/register
  * @access  Public
  */
 const registerDoctor = async (req, res, next) => {
   try {
-    const { name, email, password, specialization } = req.body;
+    const { name, email, password, specialization, role } = req.body;
 
     if (!name || !email || !password || !specialization) {
       return res.status(400).json({
@@ -26,12 +28,12 @@ const registerDoctor = async (req, res, next) => {
       });
     }
 
-    // Check if doctor email already exists
+    // Check if email already exists
     const doctorExists = await Doctor.findOne({ email });
     if (doctorExists) {
       return res.status(400).json({
         success: false,
-        message: 'A doctor with this email is already registered'
+        message: 'A user with this email is already registered'
       });
     }
 
@@ -40,7 +42,8 @@ const registerDoctor = async (req, res, next) => {
       name,
       email,
       password,
-      specialization
+      specialization,
+      role: role || 'doctor'
     });
 
     res.status(201).json({
@@ -50,7 +53,8 @@ const registerDoctor = async (req, res, next) => {
         name: doctor.name,
         email: doctor.email,
         specialization: doctor.specialization,
-        token: generateToken(doctor._id)
+        role: doctor.role,
+        token: generateToken(doctor._id, doctor.role)
       }
     });
   } catch (error) {
@@ -59,13 +63,13 @@ const registerDoctor = async (req, res, next) => {
 };
 
 /**
- * @desc    Authenticate doctor and get token
+ * @desc    Authenticate doctor or admin and get token
  * @route   POST /api/auth/login
  * @access  Public
  */
 const loginDoctor = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -80,6 +84,14 @@ const loginDoctor = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
+      });
+    }
+
+    // Check role mismatch if client explicitly asked for a specific role
+    if (role && doctor.role !== role) {
+      return res.status(401).json({
+        success: false,
+        message: `This account is registered as ${doctor.role}, not ${role}`
       });
     }
 
@@ -99,7 +111,8 @@ const loginDoctor = async (req, res, next) => {
         name: doctor.name,
         email: doctor.email,
         specialization: doctor.specialization,
-        token: generateToken(doctor._id)
+        role: doctor.role,
+        token: generateToken(doctor._id, doctor.role)
       }
     });
   } catch (error) {
@@ -108,16 +121,82 @@ const loginDoctor = async (req, res, next) => {
 };
 
 /**
- * @desc    Get currently authenticated doctor profile
+ * @desc    Authenticate patient using contact number or token number
+ * @route   POST /api/auth/patient/login
+ * @access  Public
+ */
+const loginPatient = async (req, res, next) => {
+  try {
+    const { contactNumber, tokenNumber } = req.body;
+
+    if (!contactNumber && !tokenNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either a contact number or a token number to login'
+      });
+    }
+
+    let patient = null;
+    let queueEntry = null;
+
+    if (tokenNumber) {
+      queueEntry = await QueueEntry.findOne({ tokenNumber: tokenNumber.trim() }).populate('patientId');
+      if (!queueEntry) {
+        return res.status(404).json({
+          success: false,
+          message: `No active patient queue entry found for token: ${tokenNumber}`
+        });
+      }
+      patient = queueEntry.patientId;
+    } else if (contactNumber) {
+      patient = await Patient.findOne({ contactNumber: contactNumber.trim() });
+      if (!patient) {
+        return res.status(404).json({
+          success: false,
+          message: `No patient found with contact number: ${contactNumber}`
+        });
+      }
+      queueEntry = await QueueEntry.findOne({ patientId: patient._id });
+    }
+
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient profile not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        _id: patient._id,
+        name: patient.name,
+        age: patient.age,
+        gender: patient.gender,
+        contactNumber: patient.contactNumber,
+        role: 'patient',
+        tokenNumber: queueEntry ? queueEntry.tokenNumber : null,
+        token: generateToken(patient._id, 'patient')
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get currently authenticated profile
  * @route   GET /api/auth/me
  * @access  Private
  */
 const getDoctorProfile = async (req, res, next) => {
   try {
-    // req.doctor is already set by the protect middleware
     res.status(200).json({
       success: true,
-      data: req.doctor
+      data: {
+        ...req.user.toObject(),
+        role: req.role
+      }
     });
   } catch (error) {
     next(error);
@@ -127,5 +206,6 @@ const getDoctorProfile = async (req, res, next) => {
 module.exports = {
   registerDoctor,
   loginDoctor,
+  loginPatient,
   getDoctorProfile
 };
