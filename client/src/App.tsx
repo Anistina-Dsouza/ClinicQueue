@@ -36,6 +36,7 @@ export default function App() {
   const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(INITIAL_PATIENTS[0]);
   const [doctor, setDoctor] = useState<any | null>(null);
+  const [loggedInPatient, setLoggedInPatient] = useState<Patient | null>(null);
   
   // Real-time voice parameters
   const [calledPatient, setCalledPatient] = useState<Patient | null>(null);
@@ -96,6 +97,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('doctorToken');
     setDoctor(null);
+    setLoggedInPatient(null);
     setAppView('Landing');
   };
 
@@ -122,14 +124,46 @@ export default function App() {
     const checkAuth = async () => {
       const token = localStorage.getItem('doctorToken');
       if (token) {
-        if (token === 'mock-developer-jwt-token') {
+        if (token === 'mock-developer-jwt-token-doctor') {
           setDoctor({
             _id: 'mock-doctor-id-999',
             name: "Dr. Anistina D'Souza",
             email: 'test@clinic.com',
             specialization: 'Pediatrics',
-            token: 'mock-developer-jwt-token'
+            role: 'doctor',
+            token
           });
+          setAppView('ClinicianQueue');
+          return;
+        }
+        if (token === 'mock-developer-jwt-token-admin') {
+          setDoctor({
+            _id: 'mock-admin-id-999',
+            name: 'System Admin',
+            email: 'admin@clinic.com',
+            specialization: 'Operations',
+            role: 'admin',
+            token
+          });
+          setAppView('ClinicAnalytics');
+          return;
+        }
+        if (token === 'mock-developer-jwt-token-patient') {
+          setLoggedInPatient({
+            id: 'Q-111',
+            name: 'Mock Patient User',
+            age: 40,
+            gender: 'Female',
+            score: 2,
+            status: 'STABLE',
+            clinicalSummary: 'Triage complete. Please wait to be called.',
+            department: 'General Triage',
+            tags: [],
+            createdTime: Date.now(),
+            waitingTimeSec: 0,
+            assignedCabin: 'Cabin B'
+          });
+          setAppView('PatientPortal');
           return;
         }
         try {
@@ -140,7 +174,30 @@ export default function App() {
           });
           const json = await res.json();
           if (res.ok && json.success) {
-            setDoctor({ ...json.data, token });
+            const userData = json.data;
+            if (userData.role === 'patient') {
+              setLoggedInPatient({
+                id: userData.tokenNumber || 'Q-111',
+                name: userData.name || 'Patient User',
+                age: userData.age || 30,
+                gender: userData.gender ? (userData.gender.charAt(0).toUpperCase() + userData.gender.slice(1)) as any : 'Female',
+                score: 2,
+                status: 'STABLE',
+                clinicalSummary: 'Triage complete. Please wait to be called.',
+                department: 'General Triage',
+                tags: [],
+                createdTime: Date.now(),
+                waitingTimeSec: 0,
+                assignedCabin: 'Cabin B'
+              });
+              setAppView('PatientPortal');
+            } else if (userData.role === 'doctor') {
+              setDoctor({ ...userData, token });
+              setAppView('ClinicianQueue');
+            } else if (userData.role === 'admin') {
+              setDoctor({ ...userData, token });
+              setAppView('ClinicAnalytics');
+            }
           } else {
             localStorage.removeItem('doctorToken');
           }
@@ -332,13 +389,16 @@ export default function App() {
                 <span>CLINICIAN QUEUE</span>
               </button>
 
-              <button 
-                onClick={() => setAppView('PatientPortal')}
-                className={`flex items-center gap-3.5 px-4 py-3.5 rounded-xl font-bold text-xs tracking-wider transition-all cursor-pointer ${appView === 'PatientPortal' ? 'bg-primary/10 text-primary border-l-4 border-primary' : 'text-outline hover:text-on-surface hover:bg-white/5'}`}
-              >
-                <Cpu className="w-5 h-5 shrink-0" />
-                <span>PATIENT PORTAL</span>
-              </button>
+              {/* Hide patient portal button for logged-in doctors/admins as per user type routing rules */}
+              {(!doctor || (doctor.role !== 'doctor' && doctor.role !== 'admin')) && (
+                <button 
+                  onClick={() => setAppView('PatientPortal')}
+                  className={`flex items-center gap-3.5 px-4 py-3.5 rounded-xl font-bold text-xs tracking-wider transition-all cursor-pointer ${appView === 'PatientPortal' ? 'bg-primary/10 text-primary border-l-4 border-primary' : 'text-outline hover:text-on-surface hover:bg-white/5'}`}
+                >
+                  <Cpu className="w-5 h-5 shrink-0" />
+                  <span>PATIENT PORTAL</span>
+                </button>
+              )}
 
               <button 
                 onClick={() => setAppView('LobbyDisplay')}
@@ -370,7 +430,9 @@ export default function App() {
               <div className="flex items-center justify-between flex-1 min-w-0">
                 <div className="flex flex-col min-w-0">
                   <span className="font-bold text-sm text-on-surface truncate">{doctor?.name || "Anistina D'Souza"}</span>
-                  <span className="text-[10px] text-outline font-semibold tracking-wide">{doctor?.specialization || "Primary NP NP-C"}</span>
+                  <span className="text-[10px] text-outline font-semibold tracking-wide">
+                    {doctor?.role === 'admin' ? 'System Operations Admin' : (doctor?.specialization || "Primary NP NP-C")}
+                  </span>
                 </div>
                 <LogOut 
                   onClick={handleLogout}
@@ -380,7 +442,7 @@ export default function App() {
             </div>
             
             <div className="mt-4 flex justify-between items-center text-[10px] font-bold text-outline uppercase tracking-wider">
-              <span>Shift Load: Stable</span>
+              <span>Role: {doctor?.role || 'Clinician'}</span>
             </div>
           </div>
         </aside>
@@ -393,7 +455,7 @@ export default function App() {
         {(appView === 'LobbyDisplay' || appView === 'PatientPortal') && (
           <div className="fixed top-4 right-4 z-[999] flex gap-2">
             <button 
-              onClick={() => setAppView(doctor ? 'ClinicianQueue' : 'Landing')}
+              onClick={() => setAppView(doctor ? (doctor.role === 'admin' ? 'ClinicAnalytics' : 'ClinicianQueue') : 'Landing')}
               className="px-4 py-2.5 rounded-xl bg-surface-container-high/90 backdrop-blur border border-white/10 hover:border-primary/40 text-xs font-bold text-primary flex items-center gap-1.5 shadow-2xl transition-all cursor-pointer"
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -424,30 +486,28 @@ export default function App() {
 
             {/* Mobile Nav buttons */}
             <div className="lg:hidden flex bg-surface-container-highest/25 p-1 rounded-xl gap-1">
-              <button 
-                onClick={() => setAppView('ClinicianQueue')} 
-                className={`p-2 rounded-lg ${appView === 'ClinicianQueue' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
-              >
-                <LayoutDashboard className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => setAppView('PatientPortal')} 
-                className={`p-2 rounded-lg ${appView === 'PatientPortal' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
-              >
-                <Cpu className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => setAppView('LobbyDisplay')} 
-                className={`p-2 rounded-lg ${appView === 'LobbyDisplay' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
-              >
-                <Volume2 className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => setAppView('ClinicAnalytics')} 
-                className={`p-2 rounded-lg ${appView === 'ClinicAnalytics' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
-              >
-                <BarChart3 className="w-4 h-4" />
-              </button>
+              {doctor && (doctor.role === 'doctor' || doctor.role === 'admin') && (
+                <>
+                  <button 
+                    onClick={() => setAppView('ClinicianQueue')} 
+                    className={`p-2 rounded-lg ${appView === 'ClinicianQueue' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => setAppView('LobbyDisplay')} 
+                    className={`p-2 rounded-lg ${appView === 'LobbyDisplay' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => setAppView('ClinicAnalytics')} 
+                    className={`p-2 rounded-lg ${appView === 'ClinicAnalytics' ? 'bg-primary/10 text-primary' : 'text-outline'}`}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Right Status Actions */}
@@ -478,9 +538,32 @@ export default function App() {
           {appView === 'Login' && (
             <LoginView 
               onNavigate={setAppView} 
-              onLoginSuccess={(doc) => {
-                setDoctor(doc);
-                setAppView('ClinicianQueue');
+              onLoginSuccess={(userData) => {
+                if (userData.role === 'patient') {
+                  const found = patients.find(p => p.id === userData.tokenNumber);
+                  const patientObj: Patient = found || {
+                    id: userData.tokenNumber || 'Q-111',
+                    name: userData.name || 'Patient User',
+                    age: userData.age || 30,
+                    gender: userData.gender ? (userData.gender.charAt(0).toUpperCase() + userData.gender.slice(1)) as any : 'Female',
+                    score: 2,
+                    status: 'STABLE',
+                    clinicalSummary: 'Triage complete. Please wait to be called.',
+                    department: 'General Triage',
+                    tags: [],
+                    createdTime: Date.now(),
+                    waitingTimeSec: 0,
+                    assignedCabin: 'Cabin B'
+                  };
+                  setLoggedInPatient(patientObj);
+                  setAppView('PatientPortal');
+                } else if (userData.role === 'doctor') {
+                  setDoctor(userData);
+                  setAppView('ClinicianQueue');
+                } else if (userData.role === 'admin') {
+                  setDoctor(userData);
+                  setAppView('ClinicAnalytics');
+                }
               }} 
             />
           )}
@@ -501,6 +584,8 @@ export default function App() {
             <PatientPortalView 
               onRegisterPatient={handleRegisterPatient}
               patients={patients}
+              loggedInPatient={loggedInPatient}
+              onLogoutPatient={handleLogout}
             />
           )}
 

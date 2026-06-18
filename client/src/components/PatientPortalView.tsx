@@ -20,9 +20,16 @@ import {
 interface PatientPortalViewProps {
   onRegisterPatient: (patient: Patient) => void;
   patients: Patient[];
+  loggedInPatient?: Patient | null;
+  onLogoutPatient?: () => void;
 }
 
-export default function PatientPortalView({ onRegisterPatient, patients }: PatientPortalViewProps) {
+export default function PatientPortalView({ 
+  onRegisterPatient, 
+  patients, 
+  loggedInPatient, 
+  onLogoutPatient 
+}: PatientPortalViewProps) {
   const [symptoms, setSymptoms] = useState('');
   const [lang, setLang] = useState<'EN' | 'HI'>('EN');
   const [isListening, setIsListening] = useState(false);
@@ -34,6 +41,17 @@ export default function PatientPortalView({ onRegisterPatient, patients }: Patie
   const [recognitionText, setRecognitionText] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync loggedInPatient state
+  useEffect(() => {
+    if (loggedInPatient) {
+      setGeneratedToken(loggedInPatient);
+      setStep('success');
+    } else {
+      setGeneratedToken(null);
+      setStep('input');
+    }
+  }, [loggedInPatient]);
 
   // Speech Recognition setup
   const recognitionRef = useRef<any>(null);
@@ -508,12 +526,21 @@ export default function PatientPortalView({ onRegisterPatient, patients }: Patie
             </div>
           </div>
 
-          <button 
-            onClick={resetPortal}
-            className="w-full py-4 rounded-xl border border-white/5 font-semibold text-sm text-outline hover:bg-white/5 transition-all text-center select-none cursor-pointer"
-          >
-            Register Another Patient
-          </button>
+          {onLogoutPatient ? (
+            <button 
+              onClick={onLogoutPatient}
+              className="w-full py-4 rounded-xl border border-white/5 font-semibold text-sm text-outline hover:bg-white/5 transition-all text-center select-none cursor-pointer"
+            >
+              Sign Out from Portal
+            </button>
+          ) : (
+            <button 
+              onClick={resetPortal}
+              className="w-full py-4 rounded-xl border border-white/5 font-semibold text-sm text-outline hover:bg-white/5 transition-all text-center select-none cursor-pointer"
+            >
+              Register Another Patient
+            </button>
+          )}
         </main>
       )}
 
