@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const { checkInPatient } = require('../controllers/patientController');
 
-// Patient routes will be defined here
-// Example: router.get('/', getPatients);
+// Public patient registration & checkin endpoint
+router.post('/checkin', checkInPatient);
 
 module.exports = router;
