@@ -35,6 +35,7 @@ export default function PatientPortalView({
   const [isListening, setIsListening] = useState(false);
   const [patientName, setPatientName] = useState('');
   const [patientAge, setPatientAge] = useState<number | ''>('');
+  const [contactNumber, setContactNumber] = useState('');
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Female');
   const [step, setStep] = useState<'input' | 'success'>('input');
   const [generatedToken, setGeneratedToken] = useState<Patient | null>(null);
@@ -155,7 +156,7 @@ export default function PatientPortalView({
           name: finalName,
           age: finalAge,
           gender: gender.toLowerCase(),
-          contactNumber: '+919999900000', // standard fallback phone
+          contactNumber: contactNumber.trim() || '+919999900000',
           languagePreference: lang.toLowerCase(),
           symptomText: symptoms
         })
@@ -260,6 +261,7 @@ export default function PatientPortalView({
     setSymptoms('');
     setPatientName('');
     setPatientAge('');
+    setContactNumber('');
     setGender('Female');
     setStep('input');
     setGeneratedToken(null);
@@ -337,19 +339,32 @@ export default function PatientPortalView({
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-outline mb-1.5 block">Assigned Sex / Gender</label>
-                <div className="flex gap-3">
-                  {(['Female', 'Male', 'Other'] as const).map(g => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGender(g)}
-                      className={`flex-1 py-2.5 rounded-xl border border-white/5 font-semibold text-sm transition-all ${gender === g ? 'bg-primary/10 text-primary border-primary/40' : 'bg-surface-container-highest/25 text-outline hover:text-on-surface'}`}
-                    >
-                      {g}
-                    </button>
-                  ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-outline mb-1.5 block">Assigned Sex / Gender</label>
+                  <div className="flex gap-3">
+                    {(['Female', 'Male', 'Other'] as const).map(g => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setGender(g)}
+                        className={`flex-1 py-2.5 rounded-xl border border-white/5 font-semibold text-sm transition-all ${gender === g ? 'bg-primary/10 text-primary border-primary/40' : 'bg-surface-container-highest/25 text-outline hover:text-on-surface'}`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-outline mb-1.5 block">Contact Number</label>
+                  <input 
+                    type="text" 
+                    value={contactNumber}
+                    onChange={e => setContactNumber(e.target.value)}
+                    placeholder="e.g. +919999900000"
+                    className="w-full bg-surface-container-highest/30 border border-white/5 rounded-xl px-4 py-3 text-on-surface placeholder:text-outline/40 focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-all outline-none"
+                    required
+                  />
                 </div>
               </div>
             </div>
