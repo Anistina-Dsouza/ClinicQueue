@@ -26,6 +26,9 @@ const io = socketIo(server, {
   }
 });
 
+// Bind socket instance to app context
+app.set('io', io);
+
 // Middleware
 app.use(helmet());
 app.use(cors());
