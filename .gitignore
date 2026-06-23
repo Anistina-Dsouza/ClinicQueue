@@ -67,3 +67,11 @@ build/
 # Temporary files
 *.tmp
 *.temp
+
+# AI model — generated datasets and raw Kaggle data (large files, regenerate with scripts)
+server/ai-model/triage_dataset.json
+server/ai-model/triage_dataset_synthetic.json
+server/ai-model/kaggle_data/
+
+# Server temp audio uploads (voice recordings, auto-deleted after transcription)
+server/temp/
