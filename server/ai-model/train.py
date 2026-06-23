@@ -179,13 +179,12 @@ training_args = Seq2SeqTrainingArguments(
     lr_scheduler_type="cosine",
     predict_with_generate=True,
     generation_max_length=MAX_OUTPUT_LEN,
-    evaluation_strategy="epoch",
+    eval_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
     greater_is_better=False,
     logging_steps=50,
-    logging_dir=os.path.join(OUTPUT_DIR, "logs"),
     seed=SEED,
     report_to="none",              # no wandb / tensorboard
     fp16=torch.cuda.is_available(), # use float16 only on GPU
@@ -198,7 +197,7 @@ trainer = Seq2SeqTrainer(
     args=training_args,
     train_dataset=train_tokenised,
     eval_dataset=val_tokenised,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,
     data_collator=data_collator,
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
 )
