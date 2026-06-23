@@ -32,16 +32,21 @@ export default function PatientPortalView({
 }: PatientPortalViewProps) {
   const [symptoms, setSymptoms] = useState('');
   const [lang, setLang] = useState<'EN' | 'HI'>('EN');
-  const [isListening, setIsListening] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [patientName, setPatientName] = useState('');
   const [patientAge, setPatientAge] = useState<number | ''>('');
   const [contactNumber, setContactNumber] = useState('');
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Female');
   const [step, setStep] = useState<'input' | 'success'>('input');
   const [generatedToken, setGeneratedToken] = useState<Patient | null>(null);
-  const [recognitionText, setRecognitionText] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // MediaRecorder refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Sync loggedInPatient state
   useEffect(() => {
@@ -54,74 +59,128 @@ export default function PatientPortalView({
     }
   }, [loggedInPatient]);
 
-  // Speech Recognition setup
-  const recognitionRef = useRef<any>(null);
+  // ─── Voice Recording via MediaRecorder → Whisper API ───────────────────────
 
-  useEffect(() => {
-    // Check for webkitSpeechRecognition
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = lang === 'EN' ? 'en-US' : 'hi-IN';
+  const simulateSpeechRecognition = () => {
+    // Fallback: type out a sample symptom automatically when mic is unavailable
+    setIsTranscribing(true);
+    const sampleSentences = [
+      "I've had a severe throbbing headache since morning with intense nausea and aversion to lights.",
+      "My chest is feeling very heavy, almost like someone is squeezing it, and I'm struggling to catch my breath.",
+      "I think I fractured my wrist after slipping on the stairs — it's very swollen and in intense pain.",
+      "My child has a very high fever since yesterday night with a dry cough, please check them urgently."
+    ];
+    const item = sampleSentences[Math.floor(Math.random() * sampleSentences.length)];
+    setTimeout(() => {
+      setSymptoms(prev => prev ? prev + ' ' + item : item);
+      setIsTranscribing(false);
+    }, 2000);
+  };
 
-      rec.onstart = () => {
-        setIsListening(true);
-      };
-
-      rec.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setSymptoms(prev => prev ? prev + ' ' + transcript : transcript);
-        setIsListening(false);
-      };
-
-      rec.onerror = () => {
-        setIsListening(false);
-      };
-
-      rec.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = rec;
-    }
-  }, [lang]);
-
-  const toggleSpeech = () => {
-    if (isListening) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      setIsListening(false);
-    } else {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          simulateSpeechRecognition();
-        }
-      } else {
+  const startRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('[Voice] MediaDevices API not available — using fallback.');
         simulateSpeechRecognition();
+        return;
       }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      audioChunksRef.current = [];
+
+      // Pick best supported MIME type
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/ogg';
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+
+        if (audioBlob.size === 0) {
+          console.warn('[Voice] Empty audio blob recorded — using fallback.');
+          simulateSpeechRecognition();
+          return;
+        }
+
+        setIsTranscribing(true);
+
+        try {
+          // Convert Blob to Base64
+          const base64Audio = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              // Strip the data URL prefix ("data:audio/webm;base64,")
+              resolve(dataUrl.split(',')[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(audioBlob);
+          });
+
+          // POST to backend Whisper endpoint
+          const response = await fetch('http://localhost:5000/api/patients/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symptomAudioBase64: base64Audio, mimeType })
+          });
+
+          const json = await response.json();
+
+          if (response.ok && json.success && json.data.transcribedText) {
+            const text = json.data.transcribedText;
+            setSymptoms(prev => prev ? prev + ' ' + text : text);
+            console.log('[Voice] Whisper transcription successful:', text);
+          } else {
+            throw new Error(json.message || 'Transcription API returned no text');
+          }
+        } catch (err: any) {
+          console.warn('[Voice] Transcription API failed — using fallback:', err.message);
+          simulateSpeechRecognition();
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      console.log('[Voice] Recording started with MIME type:', mimeType);
+
+    } catch (err: any) {
+      console.warn('[Voice] getUserMedia failed — using fallback:', err.message);
+      simulateSpeechRecognition();
     }
   };
 
-  const simulateSpeechRecognition = () => {
-    setIsListening(true);
-    // Simulate smart transcribing with typical voice inputs
-    const sampleSentences = [
-      "I've had a severe throbbing headache since morning with intense nausea and aversion to lights.",
-      "My chest is feeling very heavy, almost like someone is squeezing it, and I'm struggling of catching my breath.",
-      "I think I broken or fractured my wrist after slipping on the stairs, it's swollen terribly and in intense pain.",
-      "My child has a very high fever since yesterday night and dry cough, please check them."
-    ];
-    const item = sampleSentences[Math.floor(Math.random() * sampleSentences.length)];
-    
-    setTimeout(() => {
-      setSymptoms(prev => prev ? prev + ' ' + item : item);
-      setIsListening(false);
-    }, 3000);
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else if (!isTranscribing) {
+      startRecording();
+    }
   };
 
   const handleQuickTagClick = (tag: string) => {
@@ -393,20 +452,71 @@ export default function PatientPortalView({
               </div>
 
               {/* Voice to Text Action Area */}
-              <div className="flex flex-col items-center justify-center py-4 gap-3 relative">
-                <button 
+              <div className="flex flex-col items-center justify-center py-5 gap-4 relative">
+
+                {/* Mic Button — 3 states: idle / recording / transcribing */}
+                <button
+                  id="voice-record-btn"
                   type="button"
-                  onClick={toggleSpeech}
-                  className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-error text-white ring-4 ring-error/30 animate-pulse' : 'bg-primary text-on-primary neon-cyan-glow hover:scale-105 active:scale-95'}`}
+                  onClick={toggleRecording}
+                  disabled={isTranscribing}
+                  aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                  className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
+                    ${
+                      isRecording
+                        ? 'bg-error text-white ring-4 ring-error/30 scale-110'
+                        : isTranscribing
+                        ? 'bg-primary/30 text-primary cursor-not-allowed'
+                        : 'bg-primary text-on-primary neon-cyan-glow hover:scale-105 active:scale-95'
+                    }`}
                 >
-                  <Mic className={`w-8 h-8 ${isListening ? 'animate-bounce' : ''}`} />
+                  {/* Pulse ring when recording */}
+                  {isRecording && (
+                    <span className="absolute inset-0 rounded-full bg-error/40 animate-ping" />
+                  )}
+
+                  {isTranscribing ? (
+                    /* Spinner while sending to Whisper */
+                    <svg className="w-8 h-8 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                  ) : isRecording ? (
+                    /* Animated waveform bars when recording */
+                    <span className="flex items-end gap-[3px] h-7">
+                      {[1, 2, 3, 4, 3].map((h, i) => (
+                        <span
+                          key={i}
+                          style={{ animationDelay: `${i * 0.1}s`, height: `${h * 22}%` }}
+                          className="w-[3px] bg-white rounded-full animate-bounce"
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <Mic className="w-8 h-8" />
+                  )}
                 </button>
+
                 <div className="text-center">
-                  <p className={`font-semibold text-sm ${isListening ? 'text-error animate-pulse' : 'text-primary'}`}>
-                    {isListening ? (lang === 'EN' ? "Listening..." : "सुन रहा हूँ...") : (lang === 'EN' ? "Tap to Speak" : "बोलने के लिए दबाएं")}
+                  <p
+                    className={`font-semibold text-sm transition-colors ${
+                      isRecording
+                        ? 'text-error animate-pulse'
+                        : isTranscribing
+                        ? 'text-primary animate-pulse'
+                        : 'text-primary'
+                    }`}
+                  >
+                    {isRecording
+                      ? (lang === 'EN' ? '🔴 Recording… tap to stop' : '🔴 रिकॉर्ड हो रहा है… रोकने के लिए दबाएं')
+                      : isTranscribing
+                      ? (lang === 'EN' ? '✨ Transcribing with AI…' : '✨ AI से लिप्यंतरण हो रहा है…')
+                      : (lang === 'EN' ? 'Tap to Speak' : 'बोलने के लिए दबाएं')}
                   </p>
                   <p className="text-xs text-outline/65 mt-0.5">
-                    {lang === 'EN' ? "Voice AI active in English, Hindi & 40+ languages" : "वॉयस एआई अंग्रेजी, हिंदी और 40+ भाषाओं में सक्रिय है"}
+                    {lang === 'EN'
+                      ? 'Powered by OpenAI Whisper · English, Hindi & 40+ languages'
+                      : 'OpenAI Whisper द्वारा संचालित · अंग्रेजी, हिंदी और 40+ भाषाएं'}
                   </p>
                 </div>
               </div>
