@@ -1,22 +1,27 @@
 const fs = require('fs');
 const OpenAI = require('openai');
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'dummy-key-to-prevent-sdk-constructor-error'
+/**
+ * Groq-powered Whisper transcription service.
+ * Uses Groq's free API (OpenAI-compatible) with whisper-large-v3-turbo model.
+ * Free tier: 7,200 seconds of audio per day — no credit card required.
+ */
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY || 'dummy-key',
+  baseURL: 'https://api.groq.com/openai/v1'
 });
 
 /**
- * Transcribe patient's voice recording using OpenAI Whisper API
+ * Transcribe patient's voice recording using Groq Whisper API
  * @param {string} filePath - Absolute path to the temporary audio recording file
  * @returns {Promise<string>} Transcribed symptom text
  */
 const transcribeAudio = async (filePath) => {
   const fallbackText = '[Speech-to-Text Fallback: Voice symptom entry recorded successfully]';
 
-  // Check if API key is not configured or is a placeholder
-  if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('your_openai_api_key')) {
-    console.warn('[Whisper Service] OpenAI API Key is missing or default. Returning fallback transcription text.');
+  // Check if Groq API key is configured
+  if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY === 'dummy-key') {
+    console.warn('[Whisper Service] GROQ_API_KEY is missing. Returning fallback transcription text.');
     return fallbackText;
   }
 
@@ -25,14 +30,21 @@ const transcribeAudio = async (filePath) => {
       throw new Error(`Audio file not found at path: ${filePath}`);
     }
 
-    const response = await openai.audio.transcriptions.create({
+    console.log(`[Whisper Service] Sending audio to Groq Whisper (whisper-large-v3-turbo)...`);
+
+    const response = await groq.audio.transcriptions.create({
       file: fs.createReadStream(filePath),
-      model: 'whisper-1'
+      model: 'whisper-large-v3-turbo',
+      response_format: 'json',
+      language: 'en'
     });
 
-    return response.text || '';
+    const text = response.text || '';
+    console.log(`[Whisper Service] Groq transcription complete: "${text.substring(0, 80)}"`);
+    return text;
+
   } catch (error) {
-    console.error(`[Whisper Service Error] Failed transcribing audio: ${error.message}`);
+    console.error(`[Whisper Service Error] Groq transcription failed: ${error.message}`);
     return fallbackText;
   }
 };
